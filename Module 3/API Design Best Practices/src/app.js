@@ -2,6 +2,7 @@ const express = require('express');
 const postRoutes = require('./routes/postRoutes');
 const { resetData } = require('./data/postStore');
 const controller = require('./controllers/postController');
+const { sendError } = require('./utils/http');
 
 function createApp() {
   const app = express();
@@ -10,14 +11,22 @@ function createApp() {
   app.use('/', postRoutes);
   app.get('/explode', controller.explode);
 
-  // TODO:
-  // - make public contract resource-oriented
-  // - standardise success envelope
-  // - standardise error envelope
-  // - add pagination metadata on list route
-  // - cap limit server-side (default limit = 2 for exercise)
-  // - stop exposing old verb routes as public contract
-  // - expose safe internal failure route for testing/demo
+  app.use((req, res) => {
+    sendError(res, 404, 'ROUTE_NOT_FOUND', 'Route not found');
+  });
+
+  app.use((err, req, res, next) => {
+    if (res.headersSent) return next(err);
+
+    const status = Number.isInteger(err.statusCode) && err.statusCode >= 400 && err.statusCode < 500
+      ? err.statusCode
+      : 500;
+    const code = status === 500 ? 'INTERNAL_ERROR' : (err.code || 'REQUEST_ERROR');
+    const message = status === 500 ? 'Internal server error' : err.message;
+
+    console.error(err);
+    return sendError(res, status, code, message);
+  });
 
   return app;
 }
@@ -26,7 +35,7 @@ if (require.main === module) {
   const app = createApp();
   const port = 3000;
   app.listen(port, () => {
-    console.log(`Starter API listening on port ${port}`);
+    console.log(`Posts API listening on port ${port}`);
   });
 }
 
