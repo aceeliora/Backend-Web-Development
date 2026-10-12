@@ -1,24 +1,25 @@
-const posts = [
+const seedPosts = [
   { id: 1, title: 'First post', body: 'Repository boundaries protect change.', authorId: 7 },
   { id: 2, title: 'Second post', body: 'Services should speak in domain language.', authorId: 8 },
 ];
 
-let nextId = Math.max(...posts.map((post) => post.id)) + 1;
+const posts = new Map(seedPosts.map((post) => [post.id, post]));
+let nextId = Math.max(...posts.keys()) + 1;
 
-// A Prisma adapter will replace this in-process array and ID counter with database queries and
+// A Prisma adapter will replace this in-process Map and ID counter with database queries and
 // generated IDs. Repository operations keep their names and behavior; business rules and HTTP
 // responses remain unchanged. Prisma's asynchronous I/O may require promise handling above this boundary.
 function findAll() {
-  return [...posts];
+  return Array.from(posts.values());
 }
 
 function findById(id) {
-  return posts.find((post) => post.id === Number(id)) || null;
+  return posts.get(Number(id)) || null;
 }
 
 function create(fields) {
   const post = { ...fields, id: nextId++ };
-  posts.push(post);
+  posts.set(post.id, post);
   return post;
 }
 
@@ -30,10 +31,7 @@ function update(id, patch) {
 }
 
 function remove(id) {
-  const index = posts.findIndex((post) => post.id === Number(id));
-  if (index === -1) return false;
-  posts.splice(index, 1);
-  return true;
+  return posts.delete(Number(id));
 }
 
 module.exports = { findAll, findById, create, update, remove };
