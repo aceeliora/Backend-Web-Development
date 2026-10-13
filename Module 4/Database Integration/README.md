@@ -1,21 +1,39 @@
-# Database Integration Assignment Starter
+# Database Integration Assignment
 
-Replace the in-memory repository implementation with PostgreSQL through Prisma. The starter already uses an asynchronous repository contract so services and controllers can remain stable during the swap.
+The posts API keeps its existing controller/service/repository boundary while persisting data in PostgreSQL through Prisma. Prisma types and error codes are confined to the database client and repository/error-translation layers.
 
-## Run
+## Requirements
+
+- Node.js 20+ (Node 22 recommended)
+- PostgreSQL 14+
+
+## Local setup
 
 ```bash
+cp .env.example .env
+# Set DATABASE_URL in .env to a local PostgreSQL database you control.
 npm install
+npm run prisma:generate
+npm run db:migrate
+npm run db:seed
+npm test
 npm start
 ```
 
-## Prisma preparation
+`.env` is ignored and must never be committed. `.env.example` contains placeholders only. Migrations are committed under `prisma/migrations`; `npm run db:migrate` applies them without resetting existing data. To create a later development migration after editing the schema, use `npx prisma migrate dev --name describe_the_change`.
 
-Copy `.env.example` to `.env` with a local PostgreSQL URL. The schema is intentionally incomplete for the assignment.
+`npm run db:seed` is safe to rerun: it inserts the sample user/posts only when their IDs are not already present and synchronizes generated ID sequences. It does not delete or reset application data.
 
-```bash
-npm run prisma:format
-npm run prisma:validate
-```
+## API contract
 
-Read the platform question before editing. Do not add platform-only `question.md`, answer files, tests, or specs to this repository. Never commit `.env` or real credentials.
+- `GET /posts` returns `{ "data": [...] }` ordered by ID.
+- `GET /posts/:id` returns the post or `404 { "error": "Post not found" }`.
+- `POST /posts` creates a post; `title` is required and the author must exist.
+- `PATCH /posts/:id` updates only `title` and `body`; a missing post returns 404.
+- `DELETE /posts/:id` returns 204 when deleted and 404 when missing.
+
+The post response remains `{ id, title, body, authorId }`; database timestamps and relations are intentionally not exposed by the existing API. Database uniqueness and relation errors map to safe 409/422 messages, connectivity errors to 503, and unexpected errors to a generic 500 response. Raw Prisma/database details are never returned to clients.
+
+## Database model
+
+The schema includes users, posts, comments, votes, follows, tags, and an explicit `PostTag` join table. Foreign keys use explicit cascade behavior, votes and follows prevent duplicate relationships, tag names are unique, and indexes support author, post-comment, vote, follow, and tag lookups.

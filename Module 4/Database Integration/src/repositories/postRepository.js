@@ -1,36 +1,61 @@
-const seed = require('../data/postSeed');
+const prisma = require('../db/prisma');
+const { toSafeDatabaseError } = require('../errors/databaseError');
 
-// Starter implementation: same async contract, temporary in-memory storage.
-const posts = seed.map((post) => ({ ...post }));
-let nextId = posts.reduce((max, post) => Math.max(max, post.id), 0) + 1;
+// Keep timestamps and relations out of the legacy /posts response payload.
+const postFields = {
+  id: true,
+  title: true,
+  body: true,
+  authorId: true,
+};
 
 async function findAll() {
-  return posts.map((post) => ({ ...post }));
+  try {
+    return await prisma.post.findMany({ orderBy: { id: 'asc' }, select: postFields });
+  } catch (error) {
+    throw toSafeDatabaseError(error);
+  }
 }
 
 async function findById(id) {
-  return posts.find((post) => post.id === Number(id)) || null;
+  try {
+    return await prisma.post.findUnique({ where: { id: Number(id) }, select: postFields });
+  } catch (error) {
+    throw toSafeDatabaseError(error);
+  }
 }
 
 async function create(fields) {
-  const post = { id: nextId++, title: fields.title, body: fields.body || '', authorId: fields.authorId };
-  posts.push(post);
-  return { ...post };
+  try {
+    return await prisma.post.create({
+      data: { title: fields.title, body: fields.body || '', authorId: fields.authorId },
+      select: postFields,
+    });
+  } catch (error) {
+    throw toSafeDatabaseError(error);
+  }
 }
 
 async function update(id, patch) {
-  const post = posts.find((candidate) => candidate.id === Number(id));
-  if (!post) return null;
-  if (patch.title !== undefined) post.title = patch.title;
-  if (patch.body !== undefined) post.body = patch.body;
-  return { ...post };
+  const data = {};
+  if (patch.title !== undefined) data.title = patch.title;
+  if (patch.body !== undefined) data.body = patch.body;
+
+  try {
+    return await prisma.post.update({ where: { id: Number(id) }, data, select: postFields });
+  } catch (error) {
+    if (error && error.code === 'P2025') return null;
+    throw toSafeDatabaseError(error);
+  }
 }
 
 async function remove(id) {
-  const index = posts.findIndex((post) => post.id === Number(id));
-  if (index === -1) return false;
-  posts.splice(index, 1);
-  return true;
+  try {
+    const result = await prisma.post.deleteMany({ where: { id: Number(id) } });
+    return result.count > 0;
+  } catch (error) {
+    throw toSafeDatabaseError(error);
+  }
 }
 
 module.exports = { findAll, findById, create, update, remove };
