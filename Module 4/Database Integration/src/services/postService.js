@@ -12,6 +12,7 @@ async function createPost(fields) {
   if (!fields || !fields.title) {
     const error = new Error('Title is required');
     error.statusCode = 422;
+    error.expose = true;
     throw error;
   }
   return postRepository.create({
