@@ -1,33 +1,63 @@
 'use strict';
 
-// ─── YOUR FILE — implement this ───────────────────────────────────────────────
-// Export handleWebhook(req, res), used by POST /webhooks in app.js.
-// Also export _processedIds (your Set or Map) for test inspection/reset.
-//
-// Steps (in order):
-//  1. Verify HMAC-SHA256 signature
-//     - Signature header: req.headers['x-webhook-signature'] → 'sha256=<hex>'
-//     - Compute: crypto.createHmac('sha256', WEBHOOK_SECRET).update(req.body).digest('hex')
-//     - Compare: crypto.timingSafeEqual(Buffer.from(expected,'hex'), Buffer.from(received,'hex'))
-//     - Mismatch or missing → res.status(401).json({ error: 'Invalid signature' })
-//
-//  2. Parse body: const event = JSON.parse(req.body)
-//
-//  3. Idempotency: if _processedIds.has(event.id) → res.status(200).json({ status: 'already_processed' })
-//
-//  4. Mark: _processedIds.add(event.id)
-//
-//  5. Acknowledge: res.status(200).json({ status: 'received' })
-//     Then call handleEvent(event) inside setImmediate(() => { ... })
-
+const crypto = require('node:crypto');
 const { handleEvent } = require('./eventHandlers');
-
-// TODO: implement
 
 const _processedIds = new Set();
 
-async function handleWebhook(req, res) {
-  res.status(501).json({ error: 'not implemented' });
+function invalidSignature(res) {
+  return res.status(401).json({ error: 'Invalid signature' });
+}
+
+function handleWebhook(req, res) {
+  const signature = req.headers['x-webhook-signature'];
+  const secret = process.env.WEBHOOK_SECRET;
+
+  // Reject malformed headers before decoding so the comparison always uses
+  // two complete SHA-256 digests of equal length.
+  const signatureMatch = typeof signature === 'string'
+    ? /^sha256=([a-f0-9]{64})$/i.exec(signature)
+    : null;
+
+  if (!secret || !Buffer.isBuffer(req.body) || !signatureMatch) {
+    return invalidSignature(res);
+  }
+
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(req.body)
+    .digest();
+  const received = Buffer.from(signatureMatch[1], 'hex');
+
+  if (expected.length !== received.length || !crypto.timingSafeEqual(expected, received)) {
+    return invalidSignature(res);
+  }
+
+  let event;
+  try {
+    event = JSON.parse(req.body);
+  } catch (error) {
+    return res.status(400).json({ error: 'Invalid JSON body' });
+  }
+
+  if (_processedIds.has(event.id)) {
+    return res.status(200).json({ status: 'already_processed' });
+  }
+
+  // Record the id before acknowledging so concurrent/retried deliveries
+  // cannot schedule the same event more than once.
+  _processedIds.add(event.id);
+  res.status(200).json({ status: 'received' });
+
+  setImmediate(() => {
+    try {
+      Promise.resolve(handleEvent(event)).catch((error) => {
+        console.error('Webhook event processing failed:', error);
+      });
+    } catch (error) {
+      console.error('Webhook event processing failed:', error);
+    }
+  });
 }
 
 module.exports = { handleWebhook, _processedIds };
